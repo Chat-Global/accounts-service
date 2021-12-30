@@ -1,2 +1,11 @@
-node_modules
-.upm
+node_modules/*
+.yarn/*
+yarn.lock
+*.json
+*.yml
+.prettierignore
+.eslintignore
+.prettierrc
+readme.md
+*.css
+*.html
