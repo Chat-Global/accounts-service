@@ -92,15 +92,16 @@ app.post('/register', async (req: any, res: any): Promise<void> => {
 
 		db.set(user.uid, token);
 
-        const options = { domain: '.chatglobal.ml', maxAge: expiresIn, httpOnly: true };
-
-        res.cookie('session', sessionCookie, options);
-
 		return res.status(200).json(
             {
 				status: 'success',
 				token: token,
-                redirect: '/interchat/amongus'
+                sessionCookie: {
+                    name: 'session',
+                    value: sessionCookie,
+                    maxAge: expiresIn
+                },
+                redirect: '/interchat/es'
 			}
 		);
 	} else {
@@ -180,15 +181,16 @@ app.post('/login', async (req: any, res: any): Promise<void> => {
             }
         );
 
-		const options = { domain: 'localhost:4000', maxAge: expiresIn, httpOnly: true };
-
-        res.cookie('session', sessionCookie, options);
-
 		return res.status(200).json(
             {
 				status: 'success',
 				token: token,
-                redirect: '/interchat/amongus'
+                sessionCookie: {
+                    name: 'session',
+                    value: sessionCookie,
+                    maxAge: expiresIn
+                },
+                redirect: '/interchat/es'
 			}
 		);
 	} else {
