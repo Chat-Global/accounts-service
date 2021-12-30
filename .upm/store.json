@@ -1,1 +1,1 @@
-{"version":2,"languages":{"nodejs-npm":{"specfileHash":"6502ab35c9b34f49ba2fd4633c12ef26","lockfileHash":"62a0de1c27874e05c75058d0c81579e9","guessedImports":["express","socket.io"],"guessedImportsHash":"135540b5e0e60f80e248f4f04ca53713"}}}
+{"version":2,"languages":{"nodejs-npm":{"specfileHash":"6a34e502029aa66cb539ac29a6ccb268","lockfileHash":"721ba8601f19d0ea5084691511345f16","guessedImports":["express","firebase-admin","crypto-extra","firebase","cors"],"guessedImportsHash":"9a77f0c2b4594b657e92c40f08ef9ef0"}}}

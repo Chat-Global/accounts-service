@@ -1,95 +1,206 @@
 const express = require('express');
+const admin = require('firebase-admin');
 const { createServer } = require('http');
-const { Server: IOServer } = require('socket.io');
+const cryptoExtra = require('crypto-extra');
+const firebaseAuth = require('firebase/auth');
+const { initializeApp } = require('firebase/app');
 
 const app = express();
 const server = createServer(app);
 
-const io = new IOServer(server, {
-    cors: {
-        origin: true,
-        methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-        credentials: true  
-    }
+const firebaseConfig = process.env.firebaseConfig as string;
+
+initializeApp(JSON.parse(firebaseConfig));
+
+const cert = process.env.cert as string;
+
+const db = new Map();
+
+admin.initializeApp({
+	credential: admin.credential.cert(JSON.parse(cert))
 });
 
-interface UserInterface {
-    username: string;
-    avatar: string;
-    system: boolean;
-};
+app.set('json spaces', 0);
+app.use(express.json());
+app.use(require('cors')());
 
-interface MessageInterface {
-    content: string | null;
-};
+app.get('/', (req: any, res: any): void => {
+	res.send('200: OK');
+});
 
-class Message {
-    content: string;
-    author: {
-        username: string;
-        avatar: string;
-        system: boolean;
-    };
+app.post('/register', async (req: any, res: any): Promise<void> => {
+	const auth = firebaseAuth.getAuth();
+
+	firebaseAuth.setPersistence(auth, null);
+
+    if (!req.body) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Malformed Request.']
+        }
+    );
     
-    constructor(author: UserInterface, message: MessageInterface) {
-        this.content = (message.content && message.content.trim()) ? message.content.trim() : 'Sin contenido.';
-        
-        this.author = {
-            username: author.username || 'Desconocido',
-            avatar: author.avatar || 'https://cdn.chatglobal.ml/assets/error.png',
-            system: author.system || false
-        };
-    }
-}
+	if (!req.body.credentials) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Malformed Request.']
+        }
+    );
 
-class SystemMessage extends Message {
-    constructor(content: string) {
-        super(
-            { 
-                username: 'Chat Global System',
-                avatar: 'https://cdn.chatglobal.ml/assets/logo.png',
-                system: true
-            },
-            { 
-                content: content
+	const email = req.body.credentials.login;
+
+	const password = req.body.credentials.password;
+
+	if (!email) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Email is a required field.']
+        }
+    );
+
+	if (!password) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Password is a required field.']
+        }
+    );
+
+	const expiresIn = 60 * 60 * 24 * 5 * 1000;
+
+	const { user } = await firebaseAuth
+		.createUserWithEmailAndPassword(auth, email, password)
+		.catch((e: Error) => ({ user: { error: e } }));
+
+	if (user.error) return res.status(401).json(
+        {
+            status: 'error',
+            messages: [user.error.toString()]
+        }
+    );
+
+	const idToken = await user.getIdToken().catch(() => false);
+
+	const sessionCookie = await admin
+		.auth()
+		.createSessionCookie(idToken, { expiresIn })
+		.catch(() => false);
+
+	if (sessionCookie) {
+		const token = `${user.uid}.${cryptoExtra.randomKey(
+			10
+		)}.${cryptoExtra.randomKey(32)}`;
+
+		db.set(user.uid, token);
+
+        const options = { domain: '.chatglobal.ml', maxAge: expiresIn, httpOnly: true };
+
+        res.cookie('session', sessionCookie, options);
+
+		return res.status(200).json(
+            {
+				status: 'success',
+				token: token,
+                redirect: '/interchat/amongus'
+			}
+		);
+	} else {
+		return res.status(401).json(
+            {
+                status: 'error',
+                messages: ['A Session Cookie could not be created.']
             }
         );
-    }
-}
-
-app.get('/', (req: any, res: any): void => {  
-    res.json({ uri: "wss://gateway.chatglobal.ml" });
+	}
 });
 
-io.use((socket: any, next: any): void => {
-    if (socket.handshake.auth && socket.handshake.auth.token) {
+app.post('/login', async (req: any, res: any): Promise<void> => {
+	const auth = firebaseAuth.getAuth();
 
-        if (socket.handshake.auth.token !== 'pene') {
-            return next(new Error('Authentication error'));
+	firebaseAuth.setPersistence(auth, null);
+
+    if (!req.body) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Malformed Request.']
         }
+    );
+    
+	if (!req.body.credentials) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Malformed Request.']
+        }
+    );
 
-        return next();
-    
-    } else {
-        return next(new Error('Authentication error'));
-    }
-}).on('connection', (socket: any): void => {
-    socket.emit('MESSAGE_CREATE', new SystemMessage('Conectado al interchat, Papu.'));
-    socket.broadcast.emit('MESSAGE_CREATE', new SystemMessage('Papu se conecto al interchat.'));
-    
-    socket.on('disconnect', (): void => {
-        socket.broadcast.emit('MESSAGE_CREATE', new SystemMessage('Papu se desconecto del interchat.'));
-    });
-    
-    socket.on('MESSAGE_CREATE', (msg: MessageInterface): void => {
-        io.emit('MESSAGE_CREATE', new Message(            { 
-                username: 'Hamilla',
-                avatar: 'https://media.discordapp.net/attachments/923615661031317554/925392312190775377/IMG_20211228_151641.jpg',
-                system: false
-            }, msg));
-    });
+	const email = req.body.credentials.login;
+
+	const password = req.body.credentials.password;
+
+	if (!email) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Email is a required field.']
+        }
+    );
+
+	if (!password) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Password is a required field.']
+        }
+    );
+
+	const expiresIn = 60 * 60 * 24 * 5 * 1000;
+
+	const { user } = await firebaseAuth
+		.signInWithEmailAndPassword(auth, email, password)
+		.catch((e: Error) => ({ user: { error: e } }));
+
+	if (user.error) return res.status(401).json(
+        {
+            status: 'error',
+            messages: ['Firebase Error', user.error.toString()]
+        }
+    );
+
+	const idToken = await user.getIdToken().catch(() => false);
+
+	const sessionCookie = await admin
+		.auth()
+		.createSessionCookie(idToken, { expiresIn })
+		.catch(() => false);
+
+	if (sessionCookie) {
+		const token = db.get(user.uid);
+
+		if (!token) return res.status(401).json(
+            {
+                status: 'error',
+                messages: ['Database error.']
+            }
+        );
+
+		const options = { domain: 'localhost:4000', maxAge: expiresIn, httpOnly: true };
+
+        res.cookie('session', sessionCookie, options);
+
+		return res.status(200).json(
+            {
+				status: 'success',
+				token: token,
+                redirect: '/interchat/amongus'
+			}
+		);
+	} else {
+		return res.status(401).json(
+            {
+                status: 'error',
+                messages: ['A Session Cookie could not be created.']
+            }
+        );
+	}
 });
 
 server.listen(3000, (): void => {
-    console.log('listening on *:3000');
+	console.log('listening on *:3000');
 });
