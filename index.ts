@@ -4,6 +4,7 @@ const { createServer } = require('http');
 const cryptoExtra = require('crypto-extra');
 const firebaseAuth = require('firebase/auth');
 const { initializeApp } = require('firebase/app');
+const { verify: verifyCaptcha } = require('hcaptcha');
 
 const app = express();
 const server = createServer(app);
@@ -51,6 +52,8 @@ app.post('/register', async (req: any, res: any): Promise<void> => {
 
 	const password = req.body.credentials.password;
 
+    const captchaToken = req.body.credentials.captchaToken;
+
 	if (!email) return res.status(400).json(
         {
             status: 'error',
@@ -65,6 +68,29 @@ app.post('/register', async (req: any, res: any): Promise<void> => {
         }
     );
 
+	if (!captchaToken) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Please complete the captcha.']
+        }
+    );
+    
+    const captchaData = await verifyCaptcha(process.env.captchaSecret, captchaToken).catch(() => false);
+
+    if (!captchaData) return res.status(500).json(
+        {
+            status: 'error',
+            messages: ['Internal server error on captcha verification.']
+        }
+    );
+    
+    if (!captchaData.data.success) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Captcha token in invalid or is expired.']
+        }
+    );
+    
 	const expiresIn = 60 * 60 * 24 * 5 * 1000;
 
 	const { user } = await firebaseAuth
@@ -137,6 +163,8 @@ app.post('/login', async (req: any, res: any): Promise<void> => {
 
 	const password = req.body.credentials.password;
 
+    const captchaToken = req.body.credentials.captchaToken;
+
 	if (!email) return res.status(400).json(
         {
             status: 'error',
@@ -148,6 +176,29 @@ app.post('/login', async (req: any, res: any): Promise<void> => {
         {
             status: 'error',
             messages: ['Password is a required field.']
+        }
+    );
+
+	if (!captchaToken) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Please complete the captcha.']
+        }
+    );
+    
+    const captchaData = await verifyCaptcha(process.env.captchaSecret, captchaToken).catch(() => false);
+
+    if (!captchaData) return res.status(500).json(
+        {
+            status: 'error',
+            messages: ['Internal server error on captcha verification.']
+        }
+    );
+    
+    if (!captchaData.data.success) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Captcha token in invalid or is expired.']
         }
     );
 
@@ -203,6 +254,10 @@ app.post('/login', async (req: any, res: any): Promise<void> => {
 	}
 });
 
+app.post('/authorize/user/:id', async (req: any, res: any): Promise<void> => {
+    res.status(200).json(db.get(req.params.id));
+});
+
 server.listen(3000, (): void => {
-	console.log('listening on *:3000');
+	console.log('Listening on *:3000');
 });
