@@ -48,23 +48,47 @@ app.post('/register', async (req: any, res: any): Promise<void> => {
         }
     );
 
-	const email = req.body.credentials.login;
+    const { username, email, password, captchaToken } = req.body.credentials;
 
-	const password = req.body.credentials.password;
+	if (!username || typeof(username) !== 'string' || !username.trim()) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Username is a required field.']
+        }
+    );
 
-    const captchaToken = req.body.credentials.captchaToken;
+    if (username.trim().length < 3) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Username must have at least 3 characters.']
+        }
+    );
 
-	if (!email) return res.status(400).json(
+    if (username.trim().length > 20) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Username can\'t have more than 20 characters.']
+        }
+    );
+
+	if (!email || typeof(email) !== 'string' || !email.trim()) return res.status(400).json(
         {
             status: 'error',
             messages: ['Email is a required field.']
         }
     );
 
-	if (!password) return res.status(400).json(
+	if (!password || typeof(password) !== 'string' || !password.trim()) return res.status(400).json(
         {
             status: 'error',
             messages: ['Password is a required field.']
+        }
+    );
+    
+    if (password.trim().length < 8) return res.status(400).json(
+        {
+            status: 'error',
+            messages: ['Password should have at least 8 characters.']
         }
     );
 
@@ -84,13 +108,13 @@ app.post('/register', async (req: any, res: any): Promise<void> => {
         }
     );
     
-    if (!captchaData.data.success) return res.status(400).json(
+    if (!captchaData.success) return res.status(400).json(
         {
             status: 'error',
             messages: ['Captcha token in invalid or is expired.']
         }
     );
-    
+
 	const expiresIn = 60 * 60 * 24 * 5 * 1000;
 
 	const { user } = await firebaseAuth
@@ -159,20 +183,16 @@ app.post('/login', async (req: any, res: any): Promise<void> => {
         }
     );
 
-	const email = req.body.credentials.login;
+    const { login: email, password, captchaToken } = req.body.credentials;
 
-	const password = req.body.credentials.password;
-
-    const captchaToken = req.body.credentials.captchaToken;
-
-	if (!email) return res.status(400).json(
+	if (!email || typeof(email) !== 'string' || !email.trim()) return res.status(400).json(
         {
             status: 'error',
             messages: ['Email is a required field.']
         }
     );
 
-	if (!password) return res.status(400).json(
+	if (!password || typeof(password) !== 'string' || !password.trim()) return res.status(400).json(
         {
             status: 'error',
             messages: ['Password is a required field.']
@@ -195,7 +215,7 @@ app.post('/login', async (req: any, res: any): Promise<void> => {
         }
     );
     
-    if (!captchaData.data.success) return res.status(400).json(
+    if (!captchaData.success) return res.status(400).json(
         {
             status: 'error',
             messages: ['Captcha token in invalid or is expired.']
