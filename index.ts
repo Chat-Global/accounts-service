@@ -1,281 +1,236 @@
+const User = require('./models/user');
 const express = require('express');
-const admin = require('firebase-admin');
 const { createServer } = require('http');
 const cryptoExtra = require('crypto-extra');
-const firebaseAuth = require('firebase/auth');
-const { initializeApp } = require('firebase/app');
+const { simpleflake } = require('simpleflakes');
 const { verify: verifyCaptcha } = require('hcaptcha');
 
 const app = express();
 const server = createServer(app);
 
-const firebaseConfig = process.env.firebaseConfig as string;
-
-initializeApp(JSON.parse(firebaseConfig));
-
-const cert = process.env.cert as string;
-
-const db = new Map();
-
-admin.initializeApp({
-	credential: admin.credential.cert(JSON.parse(cert))
-});
+require('./database');
 
 app.set('json spaces', 0);
 app.use(express.json());
 app.use(require('cors')());
+
+const snowflake = () => simpleflake(Date.now(), null, 1581983347347).toString();
 
 app.get('/', (req: any, res: any): void => {
 	res.send('200: OK');
 });
 
 app.post('/register', async (req: any, res: any): Promise<void> => {
-	const auth = firebaseAuth.getAuth();
+	if (!req.body)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Malformed Request.']
+		});
 
-	firebaseAuth.setPersistence(auth, null);
+	if (!req.body.credentials)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Malformed Request.']
+		});
 
-    if (!req.body) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Malformed Request.']
-        }
-    );
-    
-	if (!req.body.credentials) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Malformed Request.']
-        }
-    );
+	const { username, email, password, captchaToken } = req.body.credentials;
 
-    const { username, email, password, captchaToken } = req.body.credentials;
+	if (!username || typeof username !== 'string' || !username.trim())
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Username is a required field.']
+		});
 
-	if (!username || typeof(username) !== 'string' || !username.trim()) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Username is a required field.']
-        }
-    );
+	if (username.trim().length < 3)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Username must have at least 3 characters.']
+		});
 
-    if (username.trim().length < 3) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Username must have at least 3 characters.']
-        }
-    );
+	if (username.trim().length > 20)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Username can\'t have more than 20 characters.']
+		});
 
-    if (username.trim().length > 20) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Username can\'t have more than 20 characters.']
-        }
-    );
+	if (!email || typeof email !== 'string' || !email.trim())
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Email is a required field.']
+		});
 
-	if (!email || typeof(email) !== 'string' || !email.trim()) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Email is a required field.']
-        }
-    );
+	if (!password || typeof password !== 'string' || !password.trim())
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Password is a required field.']
+		});
 
-	if (!password || typeof(password) !== 'string' || !password.trim()) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Password is a required field.']
-        }
-    );
-    
-    if (password.trim().length < 8) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Password should have at least 8 characters.']
-        }
-    );
+	if (password.trim().length < 8)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Password should have at least 8 characters.']
+		});
 
-	if (!captchaToken) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Please complete the captcha.']
-        }
-    );
-    
-    const captchaData = await verifyCaptcha(process.env.captchaSecret, captchaToken).catch(() => false);
+	if (!captchaToken)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Please complete the captcha.']
+		});
 
-    if (!captchaData) return res.status(500).json(
-        {
-            status: 'error',
-            messages: ['Internal server error on captcha verification.']
-        }
-    );
-    
-    if (!captchaData.success) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Captcha token in invalid or is expired.']
-        }
-    );
+	const captchaData = await verifyCaptcha(
+		process.env.captchaSecret,
+		captchaToken
+	).catch(() => false);
 
-	const expiresIn = 60 * 60 * 24 * 5 * 1000;
+	if (!captchaData)
+		return res.status(500).json({
+			status: 'error',
+			messages: ['Internal server error on captcha verification.']
+		});
 
-	const { user } = await firebaseAuth
-		.createUserWithEmailAndPassword(auth, email, password)
-		.catch((e: Error) => ({ user: { error: e } }));
+	if (!captchaData.success)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Captcha token in invalid or is expired.']
+		});
 
-	if (user.error) return res.status(401).json(
-        {
-            status: 'error',
-            messages: [user.error.toString()]
-        }
-    );
+	const checkUser = await User.findOne({ email: email.trim() });
 
-	const idToken = await user.getIdToken().catch(() => false);
+	if (checkUser)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['The user already exists.']
+		});
 
-	const sessionCookie = await admin
-		.auth()
-		.createSessionCookie(idToken, { expiresIn })
-		.catch(() => false);
+	const userID = snowflake();
 
-	if (sessionCookie) {
-		const token = `${user.uid}.${cryptoExtra.randomKey(
-			10
-		)}.${cryptoExtra.randomKey(32)}`;
+	const token = `${userID}.${cryptoExtra.randomKey(
+		10
+	)}.${cryptoExtra.randomKey(32)}`;
 
-		db.set(user.uid, token);
+	const user = new User({
+		id: userID,
+		username: username,
+		email: email,
+        password: password,
+		token: token
+	});
 
-		return res.status(200).json(
-            {
-				status: 'success',
-				token: token,
-                sessionCookie: {
-                    name: 'session',
-                    value: sessionCookie,
-                    maxAge: expiresIn
-                },
-                redirect: '/interchat/es'
-			}
-		);
-	} else {
-		return res.status(401).json(
-            {
-                status: 'error',
-                messages: ['A Session Cookie could not be created.']
-            }
-        );
-	}
+	const saved = await user.save().catch((e: Error) => ({ error: e }));
+ 
+	if (saved && saved.error)
+		return res.status(500).json({
+			status: 'error',
+			messages: ['Internal database error:', saved.error.toString()]
+		});
+
+	return res.status(200).json({
+		status: 'success',
+		token: token,
+		redirect: '/interchat/es'
+	});
 });
 
 app.post('/login', async (req: any, res: any): Promise<void> => {
-	const auth = firebaseAuth.getAuth();
+	if (!req.body)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Malformed Request.']
+		});
 
-	firebaseAuth.setPersistence(auth, null);
+	if (!req.body.credentials)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Malformed Request.']
+		});
 
-    if (!req.body) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Malformed Request.']
-        }
-    );
-    
-	if (!req.body.credentials) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Malformed Request.']
-        }
-    );
+	const { login: email, password, captchaToken } = req.body.credentials;
 
-    const { login: email, password, captchaToken } = req.body.credentials;
+	if (!email || typeof email !== 'string' || !email.trim())
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Email is a required field.']
+		});
 
-	if (!email || typeof(email) !== 'string' || !email.trim()) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Email is a required field.']
-        }
-    );
+	if (!password || typeof password !== 'string' || !password.trim())
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Password is a required field.']
+		});
 
-	if (!password || typeof(password) !== 'string' || !password.trim()) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Password is a required field.']
-        }
-    );
+	if (!captchaToken)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Please complete the captcha.']
+		});
 
-	if (!captchaToken) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Please complete the captcha.']
-        }
-    );
-    
-    const captchaData = await verifyCaptcha(process.env.captchaSecret, captchaToken).catch(() => false);
+	const captchaData = await verifyCaptcha(
+		process.env.captchaSecret,
+		captchaToken
+	).catch(() => false);
 
-    if (!captchaData) return res.status(500).json(
-        {
-            status: 'error',
-            messages: ['Internal server error on captcha verification.']
-        }
-    );
-    
-    if (!captchaData.success) return res.status(400).json(
-        {
-            status: 'error',
-            messages: ['Captcha token in invalid or is expired.']
-        }
-    );
+	if (!captchaData)
+		return res.status(500).json({
+			status: 'error',
+			messages: ['Internal server error on captcha verification.']
+		});
 
-	const expiresIn = 60 * 60 * 24 * 5 * 1000;
+	if (!captchaData.success)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['Captcha token in invalid or is expired.']
+		});
 
-	const { user } = await firebaseAuth
-		.signInWithEmailAndPassword(auth, email, password)
-		.catch((e: Error) => ({ user: { error: e } }));
+	const checkUser = await User.findOne({ email: email.trim() });
 
-	if (user.error) return res.status(401).json(
-        {
-            status: 'error',
-            messages: ['Firebase Error', user.error.toString()]
-        }
-    );
+	if (!checkUser)
+		return res.status(400).json({
+			status: 'error',
+			messages: ['The email or password are incorrect.']
+		});
 
-	const idToken = await user.getIdToken().catch(() => false);
+    const isMatch = await checkUser.comparePassword(password.trim());
 
-	const sessionCookie = await admin
-		.auth()
-		.createSessionCookie(idToken, { expiresIn })
-		.catch(() => false);
+    if (!isMatch)
+        return res.status(400).json({
+			status: 'error',
+			messages: ['The email or password are incorrect.']
+		});
 
-	if (sessionCookie) {
-		const token = db.get(user.uid);
-
-		if (!token) return res.status(401).json(
-            {
-                status: 'error',
-                messages: ['Database error.']
-            }
-        );
-
-		return res.status(200).json(
-            {
-				status: 'success',
-				token: token,
-                sessionCookie: {
-                    name: 'session',
-                    value: sessionCookie,
-                    maxAge: expiresIn
-                },
-                redirect: '/interchat/es'
-			}
-		);
-	} else {
-		return res.status(401).json(
-            {
-                status: 'error',
-                messages: ['A Session Cookie could not be created.']
-            }
-        );
-	}
+    return res.status(200).json({
+        status: 'success',
+        token: checkUser.token,
+        redirect: '/interchat/es'
+    });
 });
 
 app.post('/authorize/user/:id', async (req: any, res: any): Promise<void> => {
-    res.status(200).json(db.get(req.params.id));
+	const user = await User.findOne({ id: req.params.id });
+
+	if (!user)
+		return res.status(404).json({
+			status: 'error',
+			messages: ['User not found.']
+		});
+
+	if (req.headers.authorization !== user.token)
+		return res.status(401).json({
+			status: 'error',
+			messages: ['Invalid token provided.']
+		});
+
+    let finalUser = user.toJSON();
+
+    finalUser._id = undefined;
+
+    finalUser.password = undefined;
+
+    finalUser.__v = undefined;
+
+    finalUser = JSON.parse(JSON.stringify(finalUser));
+
+
+	res.status(200).json(finalUser);
 });
 
 server.listen(3000, (): void => {
